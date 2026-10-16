@@ -595,6 +595,7 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     if (setup(argc, argv) != 0) return 2;
     int rc = exploit();
-    cleanup();
+    // Maybe causing race condition due to Icache
+    //cleanup();
     return rc;
 }
