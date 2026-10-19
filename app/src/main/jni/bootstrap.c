@@ -9,10 +9,12 @@
 #include <unistd.h>
 
 #define BLKROSET   0x125d
-#define KSUD_STAGE "/data/user_de/0/df.root/ksud"
+#define APP_DATA   "/data/user_de/0/df.root"
+#define KSUD_STAGE APP_DATA "/ksud"
 #define KSUD       "/data/adb/ksud"
-#define PREFS_PATH "/data/user_de/0/df.root/shared_prefs/dfroot.xml"
+#define PREFS_PATH APP_DATA "/shared_prefs/dfroot.xml"
 #define MODULES_DIR "/data/adb/modules"
+#define CXX_RESTORED APP_DATA "/cxx_restored"
 
 static int pref_true(const char *buf, const char *key)
 {
@@ -219,7 +221,16 @@ int main(void)
         }
     }
 
-    touch("/dev/dfm5");    
+    /* The app restores the libc++ page cache before ksud loads kernelsu.ko,
+     * whose init re-enforces SELinux - Samsung denies the restore under
+     * enforcing. Cap the wait at ~10s: a dead app cannot stall the flow. */
+    for (int i = 0; i < 100; i++) {
+        if (access(CXX_RESTORED, F_OK) == 0)
+            break;
+        usleep(100000);
+    }
+
+    touch("/dev/dfm5");
     if (run_ctx(NULL, (char *[]){ KSUD_STAGE, "late-load", "--package-name", su_manager, NULL }) == 0) {
         touch("/dev/dfm6");
         if (soft_reboot) {
@@ -229,6 +240,6 @@ int main(void)
     } else {
         touch("/dev/dfme2");
     }
-        
+
     return 0;
 }
